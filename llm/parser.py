@@ -1,4 +1,5 @@
 import json
+import threading
 from typing import Dict, Optional
 from urllib import error, request
 
@@ -20,6 +21,8 @@ OBJECT_ALIASES = {
 ACTION_ALIASES = {
     "pick_place": ["gắp", "lấy", "nhặt", "đưa", "thả", "pick", "place"],
 }
+
+_OLLAMA_LOCK = threading.Lock()
 
 
 def parse_command_rule_based(text: str) -> Dict:
@@ -77,7 +80,11 @@ def parse_command_ollama(text: str) -> Dict:
         "format": schema,
         "stream": False,
         "think": False,
-        "options": {"temperature": 0},
+        "options": {
+            "temperature": 0,
+            "num_ctx": 2048,
+            "num_predict": 64,
+        },
         "keep_alive": "5m",
     }
     http_request = request.Request(
@@ -87,8 +94,10 @@ def parse_command_ollama(text: str) -> Dict:
         method="POST",
     )
 
-    with request.urlopen(http_request, timeout=OLLAMA_TIMEOUT_SECONDS) as response:
-        api_result = json.loads(response.read().decode("utf-8"))
+    # Ollama local chạy CPU ổn định hơn khi các lệnh parser được xử lý tuần tự.
+    with _OLLAMA_LOCK:
+        with request.urlopen(http_request, timeout=OLLAMA_TIMEOUT_SECONDS) as response:
+            api_result = json.loads(response.read().decode("utf-8"))
 
     parsed = json.loads(api_result["response"])
     action = parsed.get("action")
@@ -115,5 +124,14 @@ def parse_command(text: str) -> Dict:
     except (error.URLError, TimeoutError, json.JSONDecodeError, KeyError, ValueError) as exc:
         fallback = parse_command_rule_based(text)
         fallback["parser"] = "rule_based_fallback"
-        fallback["parser_warning"] = f"Ollama chưa sẵn sàng: {type(exc).__name__}"
+        if isinstance(exc, TimeoutError):
+            fallback["parser_warning"] = (
+                f"Ollama phản hồi quá {OLLAMA_TIMEOUT_SECONDS} giây; "
+                "đã dùng parser dự phòng."
+            )
+        else:
+            fallback["parser_warning"] = (
+                f"Ollama chưa sẵn sàng ({type(exc).__name__}); "
+                "đã dùng parser dự phòng."
+            )
         return fallback

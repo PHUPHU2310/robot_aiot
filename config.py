@@ -1,4 +1,4 @@
-# Cấu hình chung cho phần Phú phụ trách
+# Cấu hình chung cho dự án robot_aiot
 
 # Vật thể demo tạm thời, sau này thay bằng output YOLO của Dũng
 DETECTED_OBJECTS = [
@@ -35,7 +35,8 @@ HOMOGRAPHY_MATRIX = [
 OLLAMA_ENABLED = True
 OLLAMA_BASE_URL = "http://127.0.0.1:11434"
 OLLAMA_MODEL = "qwen3:0.6b"
-OLLAMA_TIMEOUT_SECONDS = 30
+# Cold start trên CPU có thể mất hơn 30 giây khi máy đang bận.
+OLLAMA_TIMEOUT_SECONDS = 90
 
 CONFIDENCE_THRESHOLD = 0.70
 WORKSPACE = {
