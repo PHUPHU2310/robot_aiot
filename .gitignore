@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+venv/
+.venv/
+
+# Runtime files
+.uvicorn.pid
+uvicorn.stdout.log
+uvicorn.stderr.log
+
+# Generated application logs
+logs/*.csv
+
+# Editors / operating systems
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
