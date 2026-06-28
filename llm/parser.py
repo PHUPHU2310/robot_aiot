@@ -16,6 +16,7 @@ OBJECT_ALIASES = {
     "but": ["bút", "cây bút", "pen"],
     "dien_thoai": ["điện thoại", "phone"],
     "hop": ["hộp", "box"],
+    "keo": ["kéo", "cây kéo", "scissor", "scissors"],
 }
 
 ACTION_ALIASES = {
@@ -70,7 +71,7 @@ def parse_command_ollama(text: str) -> Dict:
         "Bạn là bộ phân tích lệnh cho robot gắp và thả. "
         "Chỉ nhận diện action=pick_place khi người dùng muốn gắp/lấy/nhặt/đưa/thả vật. "
         "Các vật hợp lệ: chai_nuoc (chai nước), coc (cốc/ly), but (bút), "
-        "dien_thoai (điện thoại), hop (hộp). "
+        "dien_thoai (điện thoại), hop (hộp), keo (kéo). "
         "Nếu không nhận diện được, trả null cho trường tương ứng.\n"
         f"Lệnh người dùng: {text}"
     )
@@ -116,13 +117,24 @@ def parse_command_ollama(text: str) -> Dict:
 
 
 def parse_command(text: str) -> Dict:
+    rule_result = parse_command_rule_based(text)
     if not OLLAMA_ENABLED:
-        return parse_command_rule_based(text)
+        return rule_result
 
     try:
-        return parse_command_ollama(text)
+        parsed = parse_command_ollama(text)
+        assisted = False
+        if parsed.get("action") is None and rule_result.get("action") is not None:
+            parsed["action"] = rule_result["action"]
+            assisted = True
+        if parsed.get("target_object") is None and rule_result.get("target_object") is not None:
+            parsed["target_object"] = rule_result["target_object"]
+            assisted = True
+        if assisted:
+            parsed["parser"] = f'{parsed["parser"]}+rule_assist'
+        return parsed
     except (error.URLError, TimeoutError, json.JSONDecodeError, KeyError, ValueError) as exc:
-        fallback = parse_command_rule_based(text)
+        fallback = rule_result
         fallback["parser"] = "rule_based_fallback"
         if isinstance(exc, TimeoutError):
             fallback["parser_warning"] = (

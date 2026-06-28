@@ -4,7 +4,7 @@ from hardware.contracts import validate_joints
 from hardware.robot_arm import RobotArm
 from vision.calibration import HomographyCalibration, LinearCalibration
 from vision.contracts import DetectedObject
-from vision.detect import normalize_detection
+from vision.detect import normalize_detection, normalize_detection_to_dict
 
 
 class VisionContractTests(unittest.TestCase):
@@ -26,6 +26,17 @@ class VisionContractTests(unittest.TestCase):
             "v": 80,
         })
         self.assertEqual((result.x_mm, result.y_mm), (180.0, 80.0))
+
+    def test_detection_metadata_for_dashboard_is_preserved(self):
+        result = normalize_detection_to_dict({
+            "class_name": "chai_nuoc",
+            "confidence": 0.91,
+            "u": 680,
+            "v": 80,
+            "bbox": {"x1": 10, "y1": 20, "x2": 30, "y2": 40},
+        })
+        self.assertEqual(result["bbox"]["x2"], 30)
+        self.assertEqual((result["x_mm"], result["y_mm"]), (180.0, 80.0))
 
     def test_invalid_confidence_is_rejected(self):
         with self.assertRaises(ValueError):

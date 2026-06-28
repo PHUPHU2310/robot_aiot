@@ -11,7 +11,7 @@ from logger import append_csv, read_csv
 from robotics.ik import inverse_kinematics
 from robotics.simulator import render_robot_simulation
 from safety.gate import safety_check
-from vision.detect import get_detected_objects
+from vision.detect import capture_vision_state
 
 app = FastAPI(title="AIoT Robot Pick & Place - Phú")
 robot = RobotArm()
@@ -22,6 +22,7 @@ OBJECT_LABELS = {
     "but": "Bút",
     "dien_thoai": "Điện thoại",
     "hop": "Hộp",
+    "keo": "Kéo",
 }
 
 STYLES = """
@@ -70,6 +71,20 @@ button {
 }
 .objects { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
 .object { padding: 10px 13px; border-radius: 10px; background: rgba(30, 41, 59, .75); color: #cbd5e1; }
+.vision-grid { display: grid; grid-template-columns: 1.35fr .9fr; gap: 18px; margin-top: 18px; }
+.camera-box {
+  min-height: 330px; border: 1px solid #26344c; border-radius: 16px; overflow: hidden;
+  background: #050914; display: flex; align-items: center; justify-content: center;
+}
+.camera-box img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.camera-placeholder { color: #64748b; text-align: center; padding: 32px; }
+.detections { display: grid; gap: 10px; }
+.detection {
+  border: 1px solid #26344c; border-radius: 14px; padding: 12px 14px;
+  background: rgba(15, 23, 42, .76);
+}
+.detection-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.coord { color: #94a3b8; font-size: 13px; line-height: 1.55; }
 .sim { margin-top: 18px; }
 .sim img { display: block; width: 100%; border-radius: 14px; border: 1px solid #26344c; }
 .back { display: inline-block; margin-top: 18px; color: #7dd3fc; text-decoration: none; }
@@ -89,6 +104,7 @@ tr:last-child td { border-bottom: 0; }
 .empty { color: #94a3b8; text-align: center; padding: 36px 12px; }
 @media (max-width: 800px) {
   .grid { grid-template-columns: 1fr; }
+  .vision-grid { grid-template-columns: 1fr; }
   .command-form { flex-direction: column; }
   button { padding: 15px; }
 }
@@ -106,8 +122,37 @@ def object_name(value: str | None) -> str:
     return OBJECT_LABELS.get(value or "", value or "Chưa xác định")
 
 
+def format_bbox(obj: Dict) -> str:
+    bbox = obj.get("bbox")
+    if not bbox:
+        return "bbox: chưa có"
+    return (
+        f"bbox: ({bbox['x1']:.0f}, {bbox['y1']:.0f}) → "
+        f"({bbox['x2']:.0f}, {bbox['y2']:.0f})"
+    )
+
+
+def render_detection_card(obj: Dict) -> str:
+    pixel = "pixel: chưa có"
+    if "u" in obj and "v" in obj:
+        pixel = f"pixel: ({obj['u']:.0f}, {obj['v']:.0f})"
+
+    return f"""
+      <div class="detection">
+        <div class="detection-head">
+          <strong>{escape(object_name(obj.get("class_name")))}</strong>
+          <span class="pill">{obj.get("confidence", 0):.0%}</span>
+        </div>
+        <div class="coord">{escape(pixel)}</div>
+        <div class="coord">robot: ({obj["x_mm"]:.1f}, {obj["y_mm"]:.1f}, {obj["z_mm"]:.1f}) mm</div>
+        <div class="coord">{escape(format_bbox(obj))}</div>
+      </div>
+    """
+
+
 def execute_command(command: str) -> Dict:
-    detected_objects = get_detected_objects()
+    vision_state = capture_vision_state()
+    detected_objects = vision_state["objects"]
     parsed = parse_command(command)
     decision = safety_check(parsed, detected_objects)
 
@@ -123,6 +168,12 @@ def execute_command(command: str) -> Dict:
     result = {
         "parsed_command": parsed,
         "decision": decision,
+        "vision": {
+            "backend": vision_state["backend"],
+            "fallback_used": vision_state["fallback_used"],
+            "warning": vision_state["warning"],
+            "camera_frame": vision_state["camera_frame"],
+        },
         "detected_objects": detected_objects,
         "status": "REJECTED",
     }
@@ -175,11 +226,24 @@ def execute_command(command: str) -> Dict:
 
 @app.get("/", response_class=HTMLResponse)
 def home():
-    objects = get_detected_objects()
+    vision_state = capture_vision_state()
+    objects = vision_state["objects"]
     objects_html = "".join(
         f"""<div class="object"><strong>{escape(object_name(o["class_name"]))}</strong>
-        · {o["confidence"]:.0%} · ({o["x_mm"]}, {o["y_mm"]}, {o["z_mm"]}) mm</div>"""
+        · {o["confidence"]:.0%} · ({o["x_mm"]:.1f}, {o["y_mm"]:.1f}, {o["z_mm"]:.1f}) mm</div>"""
         for o in objects
+    )
+    detections_html = "".join(render_detection_card(o) for o in objects) or (
+        '<div class="empty">Camera chưa phát hiện vật thể.</div>'
+    )
+    camera_html = (
+        f'<img src="{vision_state["camera_frame"]}" alt="Camera YOLO bounding boxes">'
+        if vision_state["camera_frame"]
+        else '<div class="camera-placeholder">Chưa có frame camera.<br>Dashboard đang dùng dữ liệu fallback/mock.</div>'
+    )
+    warning_html = (
+        f'<div class="warning">⚠ Vision warning: {escape(vision_state["warning"])}</div>'
+        if vision_state["warning"] else ""
     )
     return page(f"""
       <div class="eyebrow">AIOT ROBOT CONTROL</div>
@@ -196,6 +260,15 @@ def home():
           <button type="submit">Chạy lệnh</button>
         </form>
         <div class="objects">{objects_html}</div>
+        {warning_html}
+      </section>
+      <section class="card sim">
+        <h2 class="section-title">CAMERA + YOLO11N</h2>
+        <div class="row"><span class="muted">Backend</span><span class="pill">{escape(vision_state["backend"])}</span></div>
+        <div class="vision-grid">
+          <div class="camera-box">{camera_html}</div>
+          <div class="detections">{detections_html}</div>
+        </div>
       </section>
     """)
 
@@ -257,6 +330,7 @@ def run_command(command: str = Form(...)):
     result = execute_command(command)
     parsed = result["parsed_command"]
     decision = result["decision"]
+    vision_state = result["vision"]
     allowed = decision["control_allowed"]
     confidence = decision.get("confidence")
     confidence_text = f"{confidence:.2f}" if confidence is not None else "N/A"
@@ -285,6 +359,18 @@ def run_command(command: str = Form(...)):
     warning_html = (
         f'<div class="warning">⚠ {escape(parser_warning)}</div>' if parser_warning else ""
     )
+    vision_warning_html = (
+        f'<div class="warning">⚠ Vision warning: {escape(vision_state["warning"])}</div>'
+        if vision_state.get("warning") else ""
+    )
+    camera_html = (
+        f'<img src="{vision_state["camera_frame"]}" alt="Camera YOLO bounding boxes">'
+        if vision_state.get("camera_frame")
+        else '<div class="camera-placeholder">Chưa có frame camera.<br>Đang dùng dữ liệu fallback/mock.</div>'
+    )
+    detections_html = "".join(
+        render_detection_card(o) for o in result["detected_objects"]
+    ) or '<div class="empty">Camera chưa phát hiện vật thể.</div>'
     allowed_html = (
         '<span class="ok">✓ Cho phép thao tác</span>'
         if allowed else '<span class="bad">✕ Không cho phép</span>'
@@ -312,6 +398,15 @@ def run_command(command: str = Form(...)):
           {robot_html}
         </section>
       </div>
+      <section class="card sim">
+        <h2 class="section-title">CAMERA + YOLO11N</h2>
+        <div class="row"><span class="muted">Backend</span><span class="pill">{escape(vision_state["backend"])}</span></div>
+        {vision_warning_html}
+        <div class="vision-grid">
+          <div class="camera-box">{camera_html}</div>
+          <div class="detections">{detections_html}</div>
+        </div>
+      </section>
       {simulation}
       <a class="back" href="/">← Nhập lệnh khác</a>
       &nbsp;&nbsp;·&nbsp;&nbsp;
@@ -324,4 +419,5 @@ def run_command_api(command: str = Form(...)):
     """Endpoint JSON dành cho tích hợp và kiểm thử."""
     result = execute_command(command)
     result.pop("simulation_image", None)
+    result.get("vision", {}).pop("camera_frame", None)
     return result

@@ -6,3 +6,5 @@ pydantic
 python-multipart
 jinja2
 matplotlib
+opencv-python
+ultralytics

@@ -15,6 +15,10 @@ uvicorn.stderr.log
 # Generated application logs
 logs/*.csv
 
+# Local capture/calibration outputs
+data/webcam_raw/
+calibration/
+
 # Editors / operating systems
 .vscode/
 .idea/

@@ -29,8 +29,8 @@ def normalize_detection(detection: Mapping) -> DetectedObject:
 
     Input chấp nhận:
     - x_mm/y_mm/z_mm
-    - x/y/z (được hiểu là mm)
-    - u/v pixel (đi qua calibration)
+    - x/y/z, hiểu là mm
+    - u/v pixel, tự đi qua calibration
     """
     item = dict(detection)
     if "x_mm" in item and "y_mm" in item:
@@ -51,9 +51,57 @@ def normalize_detection(detection: Mapping) -> DetectedObject:
     )
 
 
+def normalize_detection_to_dict(detection: Mapping) -> dict:
+    """Chuẩn hóa detection sang dict mm, giữ thêm metadata camera/bbox nếu có."""
+    item = dict(detection)
+    data = normalize_detection(item).to_dict()
+    for key in ("u", "v", "bbox", "x1", "y1", "x2", "y2"):
+        if key in item:
+            data[key] = item[key]
+    return data
+
+
 _detector = create_detector_backend()
+_static_detector = StaticDetector()
+_last_vision_error: str | None = None
+
+
+def get_camera_frame_data_uri() -> str | None:
+    """Ảnh camera gần nhất đã vẽ bbox, nếu backend có hỗ trợ."""
+    getter = getattr(_detector, "get_last_frame_data_uri", None)
+    if callable(getter):
+        return getter()
+    return None
+
+
+def capture_vision_state() -> dict:
+    """
+    Lấy trọn trạng thái Vision cho Dashboard.
+
+    Nếu YOLO/camera lỗi, Dashboard vẫn chạy bằng mock data và hiển thị cảnh báo.
+    """
+    global _last_vision_error
+
+    try:
+        raw_objects = list(_detector.detect())
+        objects = [normalize_detection_to_dict(item) for item in raw_objects]
+        _last_vision_error = None
+        fallback_used = False
+    except Exception as exc:
+        raw_objects = list(_static_detector.detect())
+        objects = [normalize_detection_to_dict(item) for item in raw_objects]
+        _last_vision_error = f"{type(exc).__name__}: {exc}"
+        fallback_used = True
+
+    return {
+        "backend": VISION_BACKEND,
+        "fallback_used": fallback_used,
+        "warning": _last_vision_error,
+        "objects": objects,
+        "camera_frame": None if fallback_used else get_camera_frame_data_uri(),
+    }
 
 
 def get_detected_objects() -> list[dict]:
     """Public API ổn định mà Dashboard/Safety Gate sử dụng."""
-    return [normalize_detection(item).to_dict() for item in _detector.detect()]
+    return capture_vision_state()["objects"]

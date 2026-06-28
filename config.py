@@ -5,6 +5,8 @@ DETECTED_OBJECTS = [
     {"class_name": "chai_nuoc", "confidence": 0.91, "x_mm": 180, "y_mm": 80, "z_mm": 20},
     {"class_name": "coc", "confidence": 0.87, "x_mm": 130, "y_mm": -60, "z_mm": 20},
     {"class_name": "but", "confidence": 0.82, "x_mm": 220, "y_mm": 30, "z_mm": 10},
+    {"class_name": "dien_thoai", "confidence": 0.88, "x_mm": 100, "y_mm": -110, "z_mm": 10},
+    {"class_name": "keo", "confidence": 0.86, "x_mm": 210, "y_mm": -40, "z_mm": 10},
 ]
 
 DROP_ZONE = {"x_mm": 80, "y_mm": 140, "z_mm": 20}
@@ -13,7 +15,7 @@ DROP_ZONE = {"x_mm": 80, "y_mm": 140, "z_mm": 20}
 HARDWARE_BACKEND = "simulator"
 
 # Backend vision: "static" hoặc "yolo".
-VISION_BACKEND = "yolo" 
+VISION_BACKEND = "yolo"
 
 # Backend calibration: "linear" hoặc "homography".
 CALIBRATION_BACKEND = "linear"
@@ -53,7 +55,7 @@ LINKS = {
     "elbow_to_wrist": 130,
     "wrist_to_gripper": 60,
 }
-YOLO_MODEL_PATH   = "D:/robot_aiot/runs/detect/runs_train/household5-2/weights/best.pt"
+YOLO_MODEL_PATH = "runs/detect/runs_train/household5-2/weights/best.pt"
 YOLO_FRAME_SOURCE = 0        # 0 = webcam | "test.jpg" = ảnh tĩnh | URL stream của Pi
-YOLO_CONF         = 0.45     # ngưỡng detect thô; gate 0.70 lọc lần cuối
-YOLO_SINGLE_BEST = True  
+YOLO_CONF = 0.45             # ngưỡng detect thô; gate 0.70 lọc lần cuối
+YOLO_SINGLE_BEST = False     # False để Dashboard thấy đầy đủ bbox/vật thể trong khung
