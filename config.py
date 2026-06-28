@@ -13,7 +13,7 @@ DROP_ZONE = {"x_mm": 80, "y_mm": 140, "z_mm": 20}
 HARDWARE_BACKEND = "simulator"
 
 # Backend vision: "static" hoặc "yolo".
-VISION_BACKEND = "static"
+VISION_BACKEND = "yolo" 
 
 # Backend calibration: "linear" hoặc "homography".
 CALIBRATION_BACKEND = "linear"
@@ -53,3 +53,7 @@ LINKS = {
     "elbow_to_wrist": 130,
     "wrist_to_gripper": 60,
 }
+YOLO_MODEL_PATH   = "D:/robot_aiot/runs/detect/runs_train/household5-2/weights/best.pt"
+YOLO_FRAME_SOURCE = 0        # 0 = webcam | "test.jpg" = ảnh tĩnh | URL stream của Pi
+YOLO_CONF         = 0.45     # ngưỡng detect thô; gate 0.70 lọc lần cuối
+YOLO_SINGLE_BEST = True  

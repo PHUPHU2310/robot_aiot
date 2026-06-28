@@ -1,0 +1,6 @@
+path: D:/robot_aiot/dataset5
+train: train/images
+val: valid/images
+test: test/images
+nc: 5
+names: [bottle, cup, pen, phone, scissor]

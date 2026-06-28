@@ -1,0 +1,13 @@
+train: ../train/images
+val: ../valid/images
+test: ../test/images
+
+nc: 20
+names: ['Air-conditioner', 'bottle', 'bowl', 'clock', 'cup', 'fork', 'fridge', 'hairdryer', 'kettle', 'key', 'knife', 'microwave', 'oven', 'pen', 'phone', 'remote-control', 'rice-cooker', 'scissor', 'spoon', 'teapot']
+
+roboflow:
+  workspace: yolov5-epx0y
+  project: household-uhdlf
+  version: 1
+  license: CC BY 4.0
+  url: https://universe.roboflow.com/yolov5-epx0y/household-uhdlf/dataset/1
