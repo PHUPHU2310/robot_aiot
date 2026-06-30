@@ -22,6 +22,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
+import re
 import sys
 from pathlib import Path
 
@@ -63,6 +65,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--output", default="calibration/homography_matrix.json")
     parser.add_argument("--save-frame", default="calibration/calibration_frame.jpg")
+    parser.add_argument(
+        "--update-config",
+        action="store_true",
+        help="Tự động ghi HOMOGRAPHY_MATRIX và CALIBRATION_BACKEND vào config.py.",
+    )
     return parser
 
 
@@ -188,6 +195,11 @@ def main() -> int:
         raise RuntimeError("cv2.findHomography không tính được ma trận. Kiểm tra lại thứ tự điểm.")
 
     matrix_list = [[round(float(value), 8) for value in row] for row in matrix.tolist()]
+    if any(not math.isfinite(v) for row in matrix_list for v in row):
+        raise RuntimeError(
+            "Homography matrix chứa nan/inf — 4 điểm calibration có thể thẳng hàng. "
+            "Kiểm tra lại thứ tự và vị trí các điểm."
+        )
     output = {
         "pixel_points": pixel_points.tolist(),
         "robot_points_mm": robot_points.tolist(),
@@ -206,7 +218,35 @@ def main() -> int:
         print(f"    {row},")
     print("]")
     print(f"\nĐã lưu chi tiết calibration: {output_path.resolve()}")
+
+    if args.update_config:
+        _update_config(matrix_list)
+
     return 0
+
+
+def _update_config(matrix_list: list) -> None:
+    config_path = Path(__file__).parent.parent / "config.py"
+    if not config_path.exists():
+        print(f"Không tìm thấy config.py tại {config_path}. Cập nhật thủ công.")
+        return
+
+    text = config_path.read_text(encoding="utf-8")
+
+    matrix_str = "[\n" + "".join(f"    {row},\n" for row in matrix_list) + "]"
+    text = re.sub(
+        r'HOMOGRAPHY_MATRIX\s*=\s*\[[^\[\]]*(?:\[[^\[\]]*\][^\[\]]*)*\]',
+        f"HOMOGRAPHY_MATRIX = {matrix_str}",
+        text,
+    )
+    text = re.sub(
+        r'CALIBRATION_BACKEND\s*=\s*"[^"]*"',
+        'CALIBRATION_BACKEND = "homography"',
+        text,
+    )
+
+    config_path.write_text(text, encoding="utf-8")
+    print(f"Đã cập nhật config.py: CALIBRATION_BACKEND='homography' + HOMOGRAPHY_MATRIX mới.")
 
 
 if __name__ == "__main__":

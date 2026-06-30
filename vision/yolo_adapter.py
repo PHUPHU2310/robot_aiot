@@ -1,231 +1,138 @@
 """
-YOLO11n backend cho Dashboard.
+vision/yolo_adapter.py  —  YOLO backend thật (Dũng).
 
-Adapter này giữ contract ổn định cho phần AI Control:
-
-[
-    {
-        "class_name": "chai_nuoc",
-        "confidence": 0.91,
-        "u": 520,
-        "v": 340,
-        "bbox": {"x1": 480, "y1": 300, "x2": 560, "y2": 380},
-        "z_mm": 20,
-    }
-]
-
-`vision.detect` sẽ tự gọi `pixel_to_mm(u, v)` để đổi pixel sang tọa độ robot.
+`detect()` trả danh sách dict theo contract của Phú (xem README mục
+"Hướng dẫn cho Dũng"). Ngoài ra adapter còn lưu lại frame đã vẽ bbox gần nhất
+và phơi ra qua get_last_frame_data_uri() — detect.py sẽ tự gọi hàm này
+(xem get_camera_frame_data_uri trong vision/detect.py), Dashboard hiển thị
+ảnh đó mà không cần sửa app.py.
 """
-
-from __future__ import annotations
 
 import base64
 import os
 from pathlib import Path
-from typing import Mapping, Sequence
+from typing import Mapping, Optional, Sequence
+
+import cv2
+from ultralytics import YOLO
 
 import config
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+_PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
-DEFAULT_MODEL_PATH = PROJECT_ROOT / "runs" / "detect" / "runs_train" / "household5-2" / "weights" / "best.pt"
-
-# Tên class trong dataset5/data.yaml -> tên class chuẩn của pipeline.
+# ---- Map tên class tiếng Anh (trong best.pt) -> tên tiếng Việt của hệ thống ----
 CLASS_MAP_EN_TO_VI = {
-    "bottle": "chai_nuoc",
-    "cup": "coc",
-    "pen": "but",
-    "phone": "dien_thoai",
+    "bottle":  "chai_nuoc",
+    "cup":     "coc",
+    "pen":     "but",
+    "phone":   "dien_thoai",
     "scissor": "keo",
-    "scissors": "keo",
 }
 
-# Camera nhìn từ trên xuống không đo trực tiếp z, nên tạm tra theo loại vật.
+# ---- Chiều cao gắp z (mm) theo từng class (camera overhead không đo được z) ----
 Z_BY_CLASS_MM = {
-    "chai_nuoc": 40,
-    "coc": 40,
-    "but": 10,
+    "chai_nuoc":  40,
+    "coc":        40,
+    "but":        10,
     "dien_thoai": 10,
-    "keo": 10,
+    "keo":        10,
 }
+DEFAULT_Z_MM = 20
 
-DISPLAY_COLORS = {
-    "chai_nuoc": (56, 189, 248),
-    "coc": (74, 222, 128),
-    "but": (250, 204, 21),
-    "dien_thoai": (168, 85, 247),
-    "keo": (251, 113, 133),
-}
-
-
-def resolve_project_path(value: str | os.PathLike) -> Path:
-    """Cho phép config dùng path tương đối để Dũng clone về máy khác vẫn chạy."""
-    path = Path(value)
-    if path.is_absolute():
-        return path
-    return PROJECT_ROOT / path
+MODEL_PATH = getattr(config, "YOLO_MODEL_PATH", "models/best.pt")
+FRAME_SOURCE = getattr(config, "YOLO_FRAME_SOURCE", 0)
+RAW_CONF = getattr(config, "YOLO_CONF", 0.45)
+SINGLE_BEST = getattr(config, "YOLO_SINGLE_BEST", True)
 
 
 class YoloDetector:
-    def __init__(self, model_path=None, frame_source=None):
-        self.model_path = resolve_project_path(
-            model_path or getattr(config, "YOLO_MODEL_PATH", DEFAULT_MODEL_PATH)
-        )
-        self.frame_source = getattr(config, "YOLO_FRAME_SOURCE", 0) if frame_source is None else frame_source
-        self.raw_conf = float(getattr(config, "YOLO_CONF", 0.45))
-        self.single_best = bool(getattr(config, "YOLO_SINGLE_BEST", False))
-        self.model = None
-        self.last_frame = None
-        self.last_annotated_frame = None
-        self.last_detections: list[dict] = []
-
-    def _load_model(self):
-        if self.model is not None:
-            return self.model
-
-        if not self.model_path.is_file():
+    def __init__(self, model_path: str = MODEL_PATH, frame_source=FRAME_SOURCE):
+        resolved = Path(model_path) if Path(model_path).is_absolute() else _PROJECT_ROOT / model_path
+        if not resolved.is_file():
             raise FileNotFoundError(
-                f"Không thấy weights YOLO: {self.model_path}. "
-                "Kiểm tra YOLO_MODEL_PATH trong config.py hoặc file runs/.../best.pt."
+                f"Không thấy weights YOLO: {resolved}. "
+                "Đặt đúng đường dẫn best.pt vào YOLO_MODEL_PATH trong config.py."
             )
-
-        try:
-            from ultralytics import YOLO
-        except ImportError as exc:
-            raise RuntimeError(
-                "Chưa cài ultralytics. Chạy: pip install -r requirements.txt"
-            ) from exc
-
-        self.model = YOLO(str(self.model_path))
-        return self.model
+        self.model = YOLO(str(resolved))
+        self.frame_source = frame_source
+        self._last_frame_data_uri: Optional[str] = None
 
     def _grab_frame(self):
-        try:
-            import cv2
-        except ImportError as exc:
-            raise RuntimeError(
-                "Chưa cài OpenCV. Chạy: pip install -r requirements.txt"
-            ) from exc
-
         src = self.frame_source
         if isinstance(src, str) and src.isdigit():
             src = int(src)
-
-        if isinstance(src, str):
-            image_path = resolve_project_path(src)
-            if image_path.is_file():
-                frame = cv2.imread(str(image_path))
-                if frame is None:
-                    raise RuntimeError(f"Không đọc được ảnh: {image_path}")
-                return frame
+        if isinstance(src, str) and os.path.isfile(src):
+            img = cv2.imread(src)
+            if img is None:
+                raise RuntimeError(f"Không đọc được ảnh: {src}")
+            return img
 
         cap = cv2.VideoCapture(src)
         if not cap.isOpened() and isinstance(src, int):
             cap.release()
-            cap = cv2.VideoCapture(src, cv2.CAP_DSHOW)
+            cap = cv2.VideoCapture(src, cv2.CAP_DSHOW)   # Windows
         if not cap.isOpened():
             cap.release()
             raise RuntimeError(f"Không mở được camera/nguồn: {src}")
 
         ok, frame = False, None
-        for _ in range(10):
+        for _ in range(10):           # bỏ vài frame đầu (webcam mới mở hay đen)
             ok, frame = cap.read()
         cap.release()
-
         if not ok or frame is None:
             raise RuntimeError(f"Không lấy được frame từ nguồn: {src}")
         return frame
 
     def detect(self) -> Sequence[Mapping]:
-        model = self._load_model()
         frame = self._grab_frame()
-        results = model.predict(frame, conf=self.raw_conf, verbose=False)
+        results = self.model.predict(frame, conf=RAW_CONF, verbose=False)
+        r = results[0]
 
-        detections: list[dict] = []
-        for result in results:
-            for box in result.boxes:
-                model_name = model.names[int(box.cls)]
-                class_name = CLASS_MAP_EN_TO_VI.get(str(model_name).lower())
-                if class_name is None:
-                    continue
+        # --- Vẽ bbox lên frame và lưu thành data URI để Dashboard hiển thị ---
+        annotated = r.plot()                       # ảnh numpy đã có bbox + nhãn
+        ok, buf = cv2.imencode(".jpg", annotated)
+        if ok:
+            b64 = base64.b64encode(buf).decode("ascii")
+            self._last_frame_data_uri = f"data:image/jpeg;base64,{b64}"
 
-                x1, y1, x2, y2 = [float(value) for value in box.xyxy[0].tolist()]
-                detections.append({
-                    "class_name": class_name,
-                    "confidence": float(box.conf),
-                    "u": round((x1 + x2) / 2.0, 2),
-                    "v": round((y1 + y2) / 2.0, 2),
-                    "bbox": {
-                        "x1": round(x1, 2),
-                        "y1": round(y1, 2),
-                        "x2": round(x2, 2),
-                        "y2": round(y2, 2),
-                    },
-                    "z_mm": Z_BY_CLASS_MM.get(class_name, getattr(config, "DEFAULT_OBJECT_Z_MM", 20.0)),
-                })
+        detections = []
+        for b in r.boxes:
+            en_name = self.model.names[int(b.cls)]
+            vi_name = CLASS_MAP_EN_TO_VI.get(en_name)
+            if vi_name is None:        # bỏ class ngoài 5 vật quan tâm
+                continue
+            x1, y1, x2, y2 = b.xyxy[0].tolist()
+            detections.append({
+                "class_name": vi_name,
+                "confidence": float(b.conf),
+                "u": (x1 + x2) / 2.0,
+                "v": (y1 + y2) / 2.0,
+                "z_mm": Z_BY_CLASS_MM.get(vi_name, DEFAULT_Z_MM),
+                "bbox": {"x1": x1, "y1": y1, "x2": x2, "y2": y2},
+            })
 
-        detections.sort(key=lambda item: item["confidence"], reverse=True)
-        if self.single_best and detections:
-            detections = [detections[0]]
-
-        self.last_frame = frame
-        self.last_detections = detections
-        self.last_annotated_frame = self._draw_detections(frame, detections)
+        if not detections:
+            return []
+        if SINGLE_BEST:
+            best = max(detections, key=lambda d: d["confidence"])
+            return [best]
         return detections
 
-    def _draw_detections(self, frame, detections: Sequence[Mapping]):
-        import cv2
-
-        annotated = frame.copy()
-        for item in detections:
-            bbox = item.get("bbox")
-            if not bbox:
-                continue
-            x1 = int(bbox["x1"])
-            y1 = int(bbox["y1"])
-            x2 = int(bbox["x2"])
-            y2 = int(bbox["y2"])
-            class_name = str(item["class_name"])
-            color = DISPLAY_COLORS.get(class_name, (56, 189, 248))
-            label = f"{class_name} {item['confidence']:.2f}"
-
-            cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
-            cv2.circle(annotated, (int(item["u"]), int(item["v"])), 4, color, -1)
-            cv2.putText(
-                annotated,
-                label,
-                (x1, max(y1 - 8, 18)),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.55,
-                color,
-                2,
-                cv2.LINE_AA,
-            )
-        return annotated
-
-    def get_last_frame_data_uri(self) -> str | None:
-        frame = self.last_annotated_frame if self.last_annotated_frame is not None else self.last_frame
-        if frame is None:
-            return None
-
-        import cv2
-
-        ok, buffer = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 82])
-        if not ok:
-            return None
-        encoded = base64.b64encode(buffer).decode("ascii")
-        return f"data:image/jpeg;base64,{encoded}"
+    def get_last_frame_data_uri(self) -> Optional[str]:
+        """Được detect.py gọi tự động để lấy ảnh hiển thị lên Dashboard."""
+        return self._last_frame_data_uri
 
 
+# ---- Test nhanh adapter độc lập: python -m vision.yolo_adapter [nguồn] ----
 if __name__ == "__main__":
     import sys
-
-    source = sys.argv[1] if len(sys.argv) > 1 else getattr(config, "YOLO_FRAME_SOURCE", 0)
-    detector = YoloDetector(frame_source=source)
-    found = detector.detect()
+    src = sys.argv[1] if len(sys.argv) > 1 else FRAME_SOURCE
+    if isinstance(src, str) and src.isdigit():
+        src = int(src)
+    det = YoloDetector(frame_source=src)
+    found = det.detect()
     print(f"Số vật nhận được: {len(found)}")
-    for item in found:
-        print(
-            f"{item['class_name']:12s} conf={item['confidence']:.2f} "
-            f"u={item['u']:.0f} v={item['v']:.0f} bbox={item['bbox']}"
-        )
+    for d in found:
+        flag = "OK(>=0.70)" if d["confidence"] >= 0.70 else "thấp"
+        print(f"  {d['class_name']:12s} conf={d['confidence']:.2f} "
+              f"u={d['u']:.0f} v={d['v']:.0f} z={d['z_mm']}mm  [{flag}]")

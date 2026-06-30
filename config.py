@@ -55,7 +55,33 @@ LINKS = {
     "elbow_to_wrist": 130,
     "wrist_to_gripper": 60,
 }
-YOLO_MODEL_PATH = "runs/detect/runs_train/household5-2/weights/best.pt"
+# Giới hạn góc từng khớp (độ). Cập nhật theo bàn giao của nhóm phần cứng.
+# [J1_min, J1_max], [J2_min, J2_max], [J3_min, J3_max], [J4_min, J4_max]
+JOINT_LIMITS_DEG = [
+    (-180, 180),   # J1: đế xoay
+    (-90,   90),   # J2: vai
+    (  0,  150),   # J3: khuỷu
+    (-150, 150),   # J4: cổ tay
+]
+
+# ── ESP32 Serial (chỉ dùng khi HARDWARE_BACKEND = "drv8825") ──────────────────
+# Pi/Linux: "/dev/ttyUSB0" hoặc "/dev/ttyACM0"
+# Windows dev: "COM3" (kiểm tra Device Manager)
+ESP32_PORT     = "/dev/ttyUSB0"
+ESP32_BAUDRATE = 115200
+ESP32_TIMEOUT_SEC = 10          # giây chờ ACK từ ESP32
+
+# Tỉ số bước/độ từng khớp — cập nhật sau khi Thắng/Trung đo tỉ số truyền thật.
+# Công thức: steps_per_deg = (200 * microstep) / 360 * gear_ratio
+# Ví dụ 1/8 step, không gear: 200*8/360 = 4.444
+STEPS_PER_DEG = {
+    "j1": 4.444,   # đế xoay
+    "j2": 4.444,   # vai
+    "j3": 4.444,   # khuỷu
+    "j4": 4.444,   # cổ tay
+}
+
+YOLO_MODEL_PATH = "models/best.pt"
 YOLO_FRAME_SOURCE = 0        # 0 = webcam | "test.jpg" = ảnh tĩnh | URL stream của Pi
 YOLO_CONF = 0.45             # ngưỡng detect thô; gate 0.70 lọc lần cuối
 YOLO_SINGLE_BEST = False     # False để Dashboard thấy đầy đủ bbox/vật thể trong khung

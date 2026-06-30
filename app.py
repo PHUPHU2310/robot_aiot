@@ -153,6 +153,20 @@ def render_detection_card(obj: Dict) -> str:
 def execute_command(command: str) -> Dict:
     vision_state = capture_vision_state()
     detected_objects = vision_state["objects"]
+
+    if not vision_state["fallback_used"]:
+        for obj in detected_objects:
+            append_csv("detection_log.csv", {
+                "class": obj.get("class_name"),
+                "confidence": obj.get("confidence"),
+                "u_px": obj.get("u", ""),
+                "v_px": obj.get("v", ""),
+                "x_mm": obj.get("x_mm"),
+                "y_mm": obj.get("y_mm"),
+                "z_mm": obj.get("z_mm"),
+                "backend": vision_state["backend"],
+            })
+
     parsed = parse_command(command)
     decision = safety_check(parsed, detected_objects)
 

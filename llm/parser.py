@@ -15,7 +15,6 @@ OBJECT_ALIASES = {
     "coc": ["cốc", "ly", "cup"],
     "but": ["bút", "cây bút", "pen"],
     "dien_thoai": ["điện thoại", "phone"],
-    "hop": ["hộp", "box"],
     "keo": ["kéo", "cây kéo", "scissor", "scissors"],
 }
 
@@ -71,7 +70,7 @@ def parse_command_ollama(text: str) -> Dict:
         "Bạn là bộ phân tích lệnh cho robot gắp và thả. "
         "Chỉ nhận diện action=pick_place khi người dùng muốn gắp/lấy/nhặt/đưa/thả vật. "
         "Các vật hợp lệ: chai_nuoc (chai nước), coc (cốc/ly), but (bút), "
-        "dien_thoai (điện thoại), hop (hộp), keo (kéo). "
+        "dien_thoai (điện thoại), keo (kéo). "
         "Nếu không nhận diện được, trả null cho trường tương ứng.\n"
         f"Lệnh người dùng: {text}"
     )

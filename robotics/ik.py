@@ -1,7 +1,7 @@
 import math
 from typing import Dict, List
 
-from config import LINKS
+from config import JOINT_LIMITS_DEG, LINKS
 
 
 def inverse_kinematics(x_mm: float, y_mm: float, z_mm: float) -> Dict:
@@ -42,6 +42,13 @@ def inverse_kinematics(x_mm: float, y_mm: float, z_mm: float) -> Dict:
     j4 = -(j2 + j3)
 
     joints = [round(j1, 2), round(j2, 2), round(j3, 2), round(j4, 2)]
+
+    for i, (angle, (lo, hi)) in enumerate(zip(joints, JOINT_LIMITS_DEG), start=1):
+        if not (lo <= angle <= hi):
+            raise ValueError(
+                f"J{i} = {angle:.1f}° vượt giới hạn [{lo}°, {hi}°]. "
+                "Tọa độ không thể thực hiện an toàn."
+            )
 
     return {
         "joints_deg": joints,

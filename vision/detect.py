@@ -61,13 +61,22 @@ def normalize_detection_to_dict(detection: Mapping) -> dict:
     return data
 
 
-_detector = create_detector_backend()
+_detector: DetectorBackend | None = None
 _static_detector = StaticDetector()
 _last_vision_error: str | None = None
 
 
+def _get_detector() -> DetectorBackend:
+    global _detector
+    if _detector is None:
+        _detector = create_detector_backend()
+    return _detector
+
+
 def get_camera_frame_data_uri() -> str | None:
     """Ảnh camera gần nhất đã vẽ bbox, nếu backend có hỗ trợ."""
+    if _detector is None:
+        return None
     getter = getattr(_detector, "get_last_frame_data_uri", None)
     if callable(getter):
         return getter()
@@ -83,7 +92,7 @@ def capture_vision_state() -> dict:
     global _last_vision_error
 
     try:
-        raw_objects = list(_detector.detect())
+        raw_objects = list(_get_detector().detect())
         objects = [normalize_detection_to_dict(item) for item in raw_objects]
         _last_vision_error = None
         fallback_used = False
